@@ -1,0 +1,182 @@
+---
+output:
+  pdf_document: default
+---
+```{r setup, include=FALSE, echo=F}
+# rm(list=objects())
+# ############
+# # 0. Custom code 
+# ###########
+# name <- "Hua Ling"
+# proj <- "testShaffer" # this one needs to be the same as the exising directory where your plate map outputs are located.
+# array <-'Illumina Multi Ethnic Global Array'
+# 
+# dir.input <- "R:/active/Shaffer_DentalCaries_MultiEthnicGlobal_033117_2/Project_Management/Plate_Map_Design/ForMakePlateMap"
+#   phen.name <- "Shaffer_DentalCaries_MultiEthnicGlobal_033117_2_SIF_Aliquot_040219_2523.csv"
+#   dup.filename <- "DUPS_Aliquot_Report_040219_25534.csv"
+#   rearray.filename <- "P2104_Shaffer_REARRAYSENT_2018-05-16-08_46_45.109.csv"
+# 
+# pm.filename <- "testShaffer_RearrayManifest_2019-04-19.csv" 
+# vars_to_stratify <- "NA" # Or put in sth like c("Sex", "Population")
+# vars_to_check <- c("Sex", "Population")
+# random_seed <- "365"
+
+rm(list=objects())
+############
+# 0. Custom code 
+###########
+name <- "Hua Ling"
+proj <- "testAdebamowo" # this one needs to be the same as the exising directory where your plate map outputs are located.
+array <-'H3African'
+
+dir.input <- "R:/active/Adebamowo_CervicalCa_H3Africa_033117_1/Project_Management/Plate_Maps/Files_for_Genetic_Analysts"
+  phen.name <- "Adebamowo_CervicalCa_H3Africa_033117_1_SIF_Aliquot_022619_81243_modified_by_PM_for_GA.csv"
+  dup.filename <- "DUPS_Aliquot_Report_022619_7742_modified_by_PM_for_GA.csv"
+  rearray.filename <- "P2112_Adebamowo_REARRAYSENT_2019-02-21-13_47_15.916.csv"
+
+pm.filename <- "testAdebamowo_RearrayManifest_2019-05-01.csv" 
+vars_to_stratify <- c("MTA") # Or put in sth like c("Sex", "Population")
+vars_to_check <- c("Population")
+random_seed <- "365"
+
+```
+
+---
+title: "`r proj` Plate Map Report"
+author: "`r name` at CIDR"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+# date: "05/25/2018"
+output: pdf_document
+header-includes:
+   - \usepackage{rotating}
+---
+
+```{r, include=F, echo=F}
+knitr::opts_chunk$set(echo = FALSE)
+library(xtable)
+library(dplyr)
+dir <- paste0("R:/statgen/UW_PlateMap/",proj)
+```
+
+
+# Overview
+```{r, results='hide'}
+# read final phenotype file
+phen.file <- file.path(dir.input, phen.name)
+  phen <- read.csv(phen.file, as.is=TRUE, header=TRUE)
+
+# read dup file 
+dup.file <- file.path(dir.input, dup.filename)
+  dup <- read.csv(dup.file, as.is=TRUE, header=TRUE)
+  dupname <- names(dup)[grep("Subject", names(dup))]
+  
+# read plate map file
+pm.file <- file.path("R:/statgen/UW_PlateMap", proj, "output", pm.filename)
+  pm <- read.csv(pm.file, as.is=TRUE, header=TRUE, skip=5)
+  pm <- pm[,1:3]
+  names(pm)[1] <- "Plate"
+  names(pm)[3] <- "Subject_ID"
+  nctrl <- length(grep("CONTROL", pm$Subject_ID))
+# merge plate map and phenotype file
+  pm.phen <- merge(pm, phen, by=c("Subject_ID"))
+  
+# all variables
+  vars_all <- c(vars_to_stratify, vars_to_check)
+```
+
+
+  |  
+--- | ---
+Stratification variables | None
+Study samples | `r sum(pm.phen$DNA_Class == 1)`
+Duplicates | `r sum(pm.phen$DNA_Class == 2)`
+Cross-study duplciates | `r sum(pm.phen$DNA_Class == 3)`
+Controls | `r nctrl`
+Array | `r array`
+Batch size | 96
+Number of plates | `r length(unique(pm$Plate))`
+
+
+# Files used to make plate map
+
+- phenotype file:
+    - `r phen.name`
+    - Source: PI and CIDR
+    - Variables: `r vars_all`
+- dupliate pair file:
+    - `r dup.filename`
+    - Source: CIDR ProjMng
+    - Variables: `r dupname`
+- rearray file:
+    - `r rearray.filename`
+    - Source: CIDR ProjMng (Marcia or Tameka)
+- Random seed: `r random_seed`
+
+
+# Plate Map Design
+
+Samples were assigned to plates at random, with all members of a family placed on the same plate.
+
+
+# Checks
+```{r}
+n_cntl_plate <- nctrl/length(unique(pm$Plate))
+n_crossStudyDup_plate <- sum(pm.phen$DNA_Class == 3)/length(unique(pm$Plate))
+n_dup_plate <- sum(pm.phen$DNA_Class == 2)/length(unique(pm$Plate))
+```
+
+- All family members are placed on the same plate.
+- None of `r vars_to_check` has a significant association with plate. The tables of plate balance by `r vars_to_check` show all samples, but only one randomly-selected subject per family was used in the calculation of p-value for the distribution by plate.
+- Duplicate samples are not placed on the same plate as the original sample.
+- Each plate has either `r ceiling(n_dup_plate)` or `r floor(n_dup_plate)` duplicates.
+- Cross study duplicates are evenly distributed across plates; each plate has either `r ceiling(n_crossStudyDup_plate)` or `r floor(n_crossStudyDup_plate)` cross-study duplicate samples.
+- Each plate has `r n_cntl_plate` HapMap/control samples.
+
+\clearpage
+
+```{r, echo=FALSE, results='asis', warning=F}
+one_per_family <- pm.phen %>%
+  group_by(Family) %>%
+  sample_n(size = 1)
+
+for (var in vars_to_check) {
+  x_all <- table(pm.phen$Plate, pm.phen[[var]])
+  pval_all <- suppressWarnings(chisq.test(x_all)$p.value)
+  char_var <- sum(nchar(names(table(pm.phen[,var]))))
+  if (!all(pm.phen$Family==0)){
+    x_one <- table(one_per_family$Plate, one_per_family[[var]])
+    pval_one <- suppressWarnings(chisq.test(x_one)$p.value)
+    caption <- paste(sprintf("Distribution of %s by plate (p = %4.3g).", var, pval_one))
+  } else if (all(pm.phen$Family==0)){
+    caption <- paste(sprintf("Distribution of %s by plate (p = %4.3g).", var, pval_all))
+  }
+  label <- sprintf("tab:%s", var)
+  if (char_var >=65){
+    print(xtable(x_all, caption = caption, label=label), type="latex"
+          , rotate.colnames = T
+          , comment=FALSE
+          , tabular.environment="longtable")
+  } else {
+    print(xtable(x_all, caption = caption, label=label), type="latex", 
+          comment=FALSE
+          , tabular.environment="longtable")
+  }
+   cat("\n\n\\pagebreak\n")
+}
+```
+
+\clearpage
+
+# Duplicates
+```{r, results='asis', warning=FALSE}
+dup <- dup[dup$Duplicate.Type == "ISD" & dup$Pair.Status == "Active", dupname]
+dup$plate1 <- NA; dup$plate2 <- NA
+for(i in 1:nrow(dup)) {
+  dup$plate1[i] <- pm$Plate[is.element(pm$Subject_ID,dup[i,1])]
+  dup$plate2[i] <- pm$Plate[is.element(pm$Subject_ID,dup[i,2])]
+}
+print(xtable(dup), include.rownames=FALSE, size = "small", type = "latex"
+      , comment=FALSE
+      , tabular.environment="longtable")
+
+```
